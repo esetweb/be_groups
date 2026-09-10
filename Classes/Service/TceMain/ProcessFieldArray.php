@@ -30,6 +30,7 @@ use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
+use TYPO3\CMS\Core\Messaging\FlashMessageService;
 
 /**
  * This class controls the visibility of available fields from be_groups records.
@@ -159,7 +160,7 @@ class ProcessFieldArray {
 	protected function resetHiddenFields(&$incomingFieldArray, $id) {
 
 		if (! is_null($this->setIncludeListFlag[$incomingFieldArray['tx_begroups_kind']]) ) {
-			$fieldsToKeepArray = array_keys(BackendUtility::getTCAtypes('be_groups', $incomingFieldArray, 1));
+			$fieldsToKeepArray = $this->getFieldsForType('be_groups', $incomingFieldArray);
 
 			foreach ($incomingFieldArray as $column => $value) {
 				if (! in_array($column, $fieldsToKeepArray) && (MathUtility::canBeInterpretedAsInteger($id) === true) ) {
@@ -167,6 +168,38 @@ class ProcessFieldArray {
 				}
 			}
 		}
+	}
+
+	/**
+	 * Returns the field names in the record type's "showitem" (palettes expanded).
+	 * Replacement for the removed BackendUtility::getTCAtypes().
+	 */
+	protected function getFieldsForType($table, array $row) {
+		$typeValue = BackendUtility::getTCAtypeValue($table, $row);
+		$showItem = $GLOBALS['TCA'][$table]['types'][$typeValue]['showitem'] ?? '';
+
+		$fields = array();
+		foreach (GeneralUtility::trimExplode(',', $showItem, true) as $item) {
+			$parts = GeneralUtility::trimExplode(';', $item);
+			$fieldName = $parts[0];
+
+			if ($fieldName === '--div--' || $fieldName === '') {
+				continue;
+			}
+			if ($fieldName === '--palette--') {
+				$paletteName = $parts[2] ?? '';
+				$paletteItems = $GLOBALS['TCA'][$table]['palettes'][$paletteName]['showitem'] ?? '';
+				foreach (GeneralUtility::trimExplode(',', $paletteItems, true) as $paletteItem) {
+					$paletteFieldName = GeneralUtility::trimExplode(';', $paletteItem)[0];
+					if ($paletteFieldName !== '' && $paletteFieldName !== '--linebreak--') {
+						$fields[$paletteFieldName] = $paletteFieldName;
+					}
+				}
+				continue;
+			}
+			$fields[$fieldName] = $fieldName;
+		}
+		return array_keys($fields);
 	}
 
 	/**
@@ -211,12 +244,14 @@ class ProcessFieldArray {
 	 * @return void
 	 */
 	private function addFlashMessageNotice($title, $message) {
-		$flashMessage = GeneralUtility::makeInstance('TYPO3\\CMS\\Core\\Messaging\\FlashMessage',
+		$flashMessage = GeneralUtility::makeInstance(
+			FlashMessage::class,
 			htmlspecialchars($title),
 			htmlspecialchars($message),
 			FlashMessage::INFO,
-			TRUE
+			true
 		);
-		FlashMessage::addMessage($flashMessage);
+		$flashMessageService = GeneralUtility::makeInstance(FlashMessageService::class);
+		$flashMessageService->getMessageQueueByIdentifier()->addMessage($flashMessage);
 	}
 }
